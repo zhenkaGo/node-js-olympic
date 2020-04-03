@@ -1,5 +1,5 @@
-const sqlite3 = require('sqlite3').verbose()
 const parser = require('./parser')
+const DB = require('./database')
 
 const SEASON = {
   'Summer': 0,
@@ -12,16 +12,10 @@ const MEDAL = {
   'Silver': 2,
   'Bronze': 3,
 }
-const TABLES = ['athletes', 'teams', 'games', 'sports', 'events', 'results']
 const CURRENT_YEAR = new Date().getFullYear()
+
 class App {
-  constructor({ databasePath }) {
-    this.db = new sqlite3.Database(databasePath, sqlite3.OPEN_READWRITE, (err) => {
-      if (err) {
-        console.error(err.message);
-      }
-      console.log('Connected to the database.')
-    })
+  constructor() {
     this.columnsOfCsv = new Map()
     this.teamTable = new Map()
     this.athletesTable = new Map()
@@ -29,32 +23,6 @@ class App {
     this.sportsTable = new Set()
     this.eventsTable = new Set()
     this.resultTable = []
-  }
-
-  closeDB() {
-    this.db.close((err) => {
-      if (err) {
-        return console.error(err.message)
-      }
-      console.log('Close the database connection.')
-    })
-  }
-
-  clearTables() {
-    return new Promise((resolve, reject) => {
-      let sql = ``
-      for (const table of TABLES) {
-        sql = `${sql} DELETE FROM ${table}; VACUUM; DELETE FROM sqlite_sequence WHERE name = '${table}';`
-      }
-      this.db.exec(sql, (err) => {
-        if (err) {
-          reject()
-          return console.log(err, 'clearTables error =============')
-        }
-        console.log(`Tables has been cleared`)
-        resolve()
-      })
-    })
   }
 
   prepareDataStructure() {
@@ -79,7 +47,7 @@ class App {
         const values = valueChunk.map((i) => (`(${Array.isArray(i) ? i.map(v => `"${v}"`).join(',') : `"${i}"`})`))
         sqlQueries.push(`INSERT INTO ${tableName}(${columns.join(',')}) VALUES ${values.join(',')}`)
       }
-      this.db.exec(sqlQueries.join(';'), err => {
+      DB.exec(sqlQueries.join(';'), err => {
         if (err) {
           return console.log(err, `err ========== ${tableName}`)
         }
@@ -103,9 +71,9 @@ class App {
       this.athletesTable.set(row[this.columnsOfCsv.get('ID')], [
         row[this.columnsOfCsv.get('Name')].replace(/\(.*?\)/g, '').trim(),
         sex ? sex : null,
-        Array.from(this.teamTable.keys()).indexOf(row[this.columnsOfCsv.get('NOC')]) + 1,
-        age === 'NA' ? null : CURRENT_YEAR - age,
         params,
+        age === 'NA' ? null : CURRENT_YEAR - age,
+        Array.from(this.teamTable.keys()).indexOf(row[this.columnsOfCsv.get('NOC')]) + 1,
       ])
     }
   }
@@ -144,13 +112,13 @@ class App {
 
   async importData() {
     console.time('import')
-    this.data = await parser('athlete_events.csv')
+    this.data = await parser('./data/athlete_events.csv')
     for (const col in this.data.columns) {
       this.columnsOfCsv.set(this.data.columns[col], col)
     }
     this.prepareDataStructure()
 
-    await this.clearTables()
+    await DB.clearTables()
     await this.insertData('teams', ['noc_name', 'name'], Array.from(this.teamTable))
 
     await this.insertData(
@@ -179,8 +147,12 @@ class App {
   }
 }
 
-
-const app = new App({ databasePath: './olympic_history.db' })
+const app = new App({ databasePath: './data/olympic_history.db' })
 app.importData().then(() => {
-  app.closeDB()
+  DB.closeDB()
+})
+
+process.on('SIGTERM', () => {
+  console.info('SIGTERM signal received.')
+  DB.closeDB()
 })
