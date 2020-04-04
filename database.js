@@ -4,7 +4,6 @@ const TABLES = ['athletes', 'teams', 'games', 'sports', 'events', 'results']
 
 class DatabaseClass {
   constructor() {
-    console.log('constructor')
     this.db = new sqlite3.Database('./data/olympic_history.db', sqlite3.OPEN_READWRITE, (err) => {
       if (err) {
         console.error(err.message);
@@ -49,5 +48,4 @@ class DatabaseClass {
 }
 
 const Database = new DatabaseClass()
-
 module.exports = Database

@@ -1,29 +1,16 @@
 const DB = require('../database')
+const { getParams, draw } = require('./utils')
 
-const args = process.argv.slice(2)
-const seasons = new Map([['winter', 1], ['summer', 0]])
-const medals = new Map([['gold', 1], ['silver', 2], ['bronze', 3]])
+const params = getParams('noc')
 
-const params = {
-  season: null, // is_required
-  noc: null, // is_required
-  medal: null
+if (params.season === null) {
+  console.log('Season is required argument')
+  return
 }
-for (let arg of args) {
-  arg.toLowerCase()
-  if (seasons.has(arg)) {
-    params.season = seasons.get(arg)
-    continue
-  }
-  if (medals.has(arg)) {
-    params.medal = medals.get(arg)
-    continue
-  }
-  params.noc = arg.toUpperCase()
+if (!params.noc) {
+  console.log('NOC is required argument')
+  return
 }
-
-if (params.season === null) console.log('Season is required argument')
-if (!params.noc) console.log('NOC is required argument')
 
 DB.all(`
   SELECT year, COUNT(medal) amount FROM games
@@ -37,21 +24,12 @@ DB.all(`
         SELECT id, season FROM games WHERE season = ${params.season}
       ) AS join_games ON join_games.id = join_results.game_id
       WHERE
-        noc_name = '${params.noc}'
+        noc_name = UPPER('${params.noc}')
   ) AS join_team_results ON games.id = join_team_results.game_id
   GROUP BY year
   ORDER BY year ASC
 `, (err, rows) => {
-  if (err) console.log(err, 'Err select')
+  if (err) console.log(err, 'Err select medals')
   const data = rows.map(i => ([i.year, i.amount]))
   draw(data, ['year', 'amount'])
 })
-
-function draw(data, columns) {
-  const max = Math.max(...data.map(arr => arr[1]))
-  console.log(columns.join('\t'))
-  for (const row of data) {
-    const num = Math.round(row[1] / max * 100)
-    console.log(`${row[0]}\t${'█'.repeat(num)}`)
-  }
-}
