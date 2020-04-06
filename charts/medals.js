@@ -12,6 +12,7 @@ if (!params.noc) {
   return
 }
 
+DB.connect()
 DB.all(`
   SELECT year, COUNT(medal) amount FROM games
   LEFT JOIN (
@@ -28,8 +29,13 @@ DB.all(`
   ) AS join_team_results ON games.id = join_team_results.game_id
   GROUP BY year
   ORDER BY year ASC
-`, (err, rows) => {
-  if (err) console.log(err, 'Err select medals')
-  const data = rows.map(i => ([i.year, i.amount]))
-  draw(data, ['year', 'amount'])
-})
+`)
+  .then(rows => {
+    const data = rows.map(i => ([i.year, i.amount]))
+    draw(data, ['year', 'amount'])
+    DB.closeDB()
+  })
+  .catch(err => {
+    console.error(err, 'Err select medals')
+    DB.closeDB()
+  })

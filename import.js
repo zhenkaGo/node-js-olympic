@@ -1,18 +1,16 @@
 const parser = require('./parser')
 const DB = require('./database')
-
-const SEASON = {
-  'Summer': 0,
-  'Winter': 1,
-}
-const MAX_VARIABLES = 999
-const MEDAL = {
-  'NA': 0,
-  'Gold': 1,
-  'Silver': 2,
-  'Bronze': 3,
-}
-const CURRENT_YEAR = new Date().getFullYear()
+const {
+  SEASON,
+  MAX_VARIABLES,
+  MEDAL,
+  CURRENT_YEAR,
+  RESULTS_COLUMNS,
+  GAMES_COLUMNS,
+  ATHLETES_COLUMNS,
+  TEAMS_COLUMNS,
+  SPORTS_EVENTS_COLUMNS
+} = require('./constants')
 
 class Import {
   constructor() {
@@ -39,22 +37,19 @@ class Import {
   }
 
   async insertData(tableName, columns, variables) {
-    return new Promise(resolve => {
-      const step = Math.floor(MAX_VARIABLES / columns.length)
-      const sqlQueries = []
-      for (let i = 0; i < variables.length; i += step) {
-        const valueChunk = variables.slice(i, i + step)
-        const values = valueChunk.map((i) => (`(${Array.isArray(i) ? i.map(v => `"${v}"`).join(',') : `"${i}"`})`))
-        sqlQueries.push(`INSERT INTO ${tableName}(${columns.join(',')}) VALUES ${values.join(',')}`)
-      }
-      DB.exec(sqlQueries.join(';'), err => {
-        if (err) {
-          return console.log(err, `err ========== ${tableName}`)
-        }
-        console.log(`${tableName} has been inserted`)
-        resolve()
-      })
-    })
+    const step = Math.floor(MAX_VARIABLES / columns.length)
+    const sqlQueries = []
+    for (let i = 0; i < variables.length; i += step) {
+      const valueChunk = variables.slice(i, i + step)
+      const values = valueChunk.map((i) => (`(${Array.isArray(i) ? i.map(v => `"${v}"`).join(',') : `"${i}"`})`))
+      sqlQueries.push(`INSERT INTO ${tableName}(${columns.join(',')}) VALUES ${values.join(',')}`)
+    }
+    try {
+      await DB.exec(sqlQueries.join(';'))
+      console.log(`${tableName} has been inserted`)
+    } catch (err) {
+      console.error(err, `err ========== ${tableName}`)
+    }
   }
 
   prepareTeams(row) {
@@ -110,38 +105,49 @@ class Import {
     ])
   }
 
+  connectDB() {
+    DB.connect()
+
+    process.on('SIGTERM', () => {
+      console.info('SIGTERM signal received.')
+      DB.closeDB()
+    })
+
+    process.on('unhandledRejection', () => {
+      console.info('unhandledRejection signal received.')
+      DB.closeDB()
+    })
+  }
+
   async importData() {
     console.time('import')
     this.data = await parser('./data/athlete_events.csv')
     for (const col in this.data.columns) {
-      this.columnsOfCsv.set(this.data.columns[col], col)
+      if (this.data.columns.hasOwnProperty(col)) {
+        this.columnsOfCsv.set(this.data.columns[col], col)
+      }
     }
+    this.connectDB()
+
     this.prepareDataStructure()
 
-    await DB.clearTables()
-    await this.insertData('teams', ['noc_name', 'name'], Array.from(this.teamTable))
+    await DB.clear()
 
-    await this.insertData(
-      'athletes',
-      ['full_name', 'sex', 'params', 'year_of_birth', 'team_id'],
-      Array.from(this.athletesTable.values())
-    )
+    await this.insertData('teams', TEAMS_COLUMNS, Array.from(this.teamTable))
+
+    await this.insertData('athletes', ATHLETES_COLUMNS, Array.from(this.athletesTable.values()))
 
     const games = Array.from(this.gamesTable.values()).map(i => {
       i[2] = Array.from(i[2]).join(', ')
       return i
     })
-    await this.insertData('games', ['year', 'season', 'city'], games)
+    await this.insertData('games', GAMES_COLUMNS, games)
 
-    await this.insertData('sports', ['name'], Array.from(this.sportsTable))
+    await this.insertData('sports', SPORTS_EVENTS_COLUMNS, Array.from(this.sportsTable))
 
-    await this.insertData('events', ['name'], Array.from(this.eventsTable))
+    await this.insertData('events', SPORTS_EVENTS_COLUMNS, Array.from(this.eventsTable))
 
-    await this.insertData(
-      'results',
-      ['athlete_id', 'game_id', 'sport_id', 'event_id', 'medal'],
-      this.resultTable
-    )
+    await this.insertData('results', RESULTS_COLUMNS, this.resultTable)
 
     console.timeEnd('import')
   }
@@ -154,5 +160,10 @@ app.importData().then(() => {
 
 process.on('SIGTERM', () => {
   console.info('SIGTERM signal received.')
+  DB.closeDB()
+})
+
+process.on('unhandledRejection', () => {
+  console.info('unhandledRejection signal received.')
   DB.closeDB()
 })
